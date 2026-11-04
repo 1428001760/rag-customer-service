@@ -1,0 +1,398 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG智能客服系统</title>
+    <link rel="stylesheet" href="https://unpkg.com/element-plus/dist/index.css">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus"></script>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body { margin: 0; background: #f5f5f5; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
+        .chat-container { height: 100vh; display: flex; flex-direction: column; }
+        .chat-header {
+            background: #1677ff; color: white; padding: 12px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .chat-main {
+            flex: 1; display: flex; max-width: 1200px; margin: 20px auto; width: 95%; gap: 20px;
+        }
+        .chat-panel {
+            flex: 2; background: white; border-radius: 8px;
+            display: flex; flex-direction: column; box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .chat-messages { flex: 1; padding: 20px; overflow-y: auto; }
+        .message { margin-bottom: 16px; max-width: 70%; white-space: pre-wrap; }
+        .message.user {
+            margin-left: auto; background: #1677ff; color: white;
+            padding: 10px 14px; border-radius: 12px 12px 0 12px;
+        }
+        .message.assistant {
+            margin-right: auto; background: #f0f0f0;
+            padding: 10px 14px; border-radius: 12px 12px 12px 0;
+        }
+        .message.thinking { color: #999; font-style: italic; }
+        .chat-input { display: flex; padding: 16px; border-top: 1px solid #eee; gap: 8px; }
+        .side-panel { flex: 1; display: flex; flex-direction: column; gap: 20px; }
+        .upload-panel {
+            background: white; padding: 20px; border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .upload-panel h3 { margin-bottom: 16px; color: #333; }
+        .upload-panel input[type="file"] { margin-bottom: 12px; display: block; }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div class="chat-container">
+        <div class="chat-header">
+            <span style="font-size:18px;font-weight:500">🤖 基于RAG的企业智能客服系统</span>
+            <span>
+                用户：{{ username }}
+                <el-button size="small" @click="goLogin">
+                    {{ isLogin ? '退出登录' : '登录管理后台' }}
+                </el-button>
+            </span>
+        </div>
+
+        <div class="chat-main">
+            <div class="chat-panel">
+                <div class="chat-messages" ref="messagesRef">
+                    <div v-for="(msg, index) in messages" :key="index" :class="['message', msg.type, msg.thinking ? 'thinking' : '']">
+                        {{ msg.text }}
+                    </div>
+                </div>
+                <div class="chat-input">
+                    <el-input v-model="question" placeholder="请输入你的问题..." @keyup.enter="sendMessage"></el-input>
+                    <el-button type="warning" @click="transferHuman">转人工</el-button>
+                    <el-button type="primary" @click="sendMessage">发送</el-button>
+                </div>
+            </div>
+
+            <div class="side-panel">
+                <div class="upload-panel">
+                    <h3>📚 知识库上传</h3>
+                    <input type="file" ref="fileInput" accept=".txt,.pdf,.docx,.md">
+                    <el-button type="success" style="width:100%;margin-top:12px" @click="uploadFile">上传文档</el-button>
+                    <p style="font-size:12px;color:#999;margin-top:12px">支持 TXT/PDF/DOCX/Markdown 格式</p>
+                </div>
+                <div class="upload-panel">
+                    <h3>ℹ️ 系统说明</h3>
+                    <p style="font-size:12px;color:#666;line-height:1.8">
+                        • 多轮对话上下文记忆<br>
+                        • RAG检索知识库回答<br>
+                        • 回答自动溯源来源<br>
+                        • 人工客服实时回复
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const { createApp, ref, reactive, onMounted, nextTick } = Vue;
+
+    createApp({
+        setup() {
+            const question = ref('');
+            const messages = ref([]);
+            const fileInput = ref(null);
+            const messagesRef = ref(null);
+
+            // 登录状态与会话ID
+            const token = localStorage.getItem('token');
+            const username = ref(localStorage.getItem('username') || '访客');
+            const isLogin = ref(!!token);
+            let sessionId = '';
+            let websocket = null;
+            let reconnectTimer = null;
+            let streamingMsg = null;
+            let watchdogTimer = null;
+            let thinkingTimer = null;
+            let fallbackStarted = false;
+            let lastQuestion = '';
+
+            // ========== 全局fetch自动带token ==========
+            const originalFetch = window.fetch;
+            window.fetch = function(url, options = {}) {
+                if (token) {
+                    options.headers = { ...options.headers, 'token': token };
+                }
+                return originalFetch(url, options).then(res => {
+                    if (res.status === 401) {
+                        localStorage.clear();
+                        location.reload();
+                    }
+                    return res;
+                });
+            };
+
+            // 初始化会话ID
+            if (isLogin.value) {
+                sessionId = 'user_' + localStorage.getItem('username');
+            } else {
+                sessionId = 'session_' + Math.random().toString(36).substr(2, 9);
+            }
+
+            function scrollToBottom() {
+                nextTick(() => {
+                    if (messagesRef.value) {
+                        messagesRef.value.scrollTop = messagesRef.value.scrollHeight;
+                    }
+                });
+            }
+
+            function addMessage(text, type) {
+                messages.value.push({ text, type });
+                scrollToBottom();
+            }
+
+            function clearWatchdog() {
+                if (watchdogTimer) {
+                    clearTimeout(watchdogTimer);
+                    watchdogTimer = null;
+                }
+            }
+
+            function clearThinkingTimer() {
+                if (thinkingTimer) {
+                    clearInterval(thinkingTimer);
+                    thinkingTimer = null;
+                }
+            }
+
+            // ========== WebSocket连接(断线自动重连) ==========
+            function connectWebSocket() {
+                websocket = new WebSocket(`ws://${location.host}/ws/chat/${sessionId}`);
+                websocket.onopen = () => {
+                    console.log('[客服] WebSocket已连接');
+                    if (reconnectTimer) {
+                        clearTimeout(reconnectTimer);
+                        reconnectTimer = null;
+                    }
+                };
+                websocket.onmessage = (e) => {
+                    let msg;
+                    try {
+                        msg = JSON.parse(e.data);
+                    } catch (err) {
+                        // 兼容旧格式纯文本(人工客服消息)
+                        msg = { type: 'agent', text: e.data };
+                    }
+                    if (fallbackStarted) {
+                        // 已切HTTP兜底,只接收人工客服消息
+                        if (msg.type === 'agent') addMessage(msg.text, 'assistant');
+                        return;
+                    }
+                    if (msg.type === 'ai_token') {
+                        clearWatchdog();
+                        clearThinkingTimer();
+                        if (streamingMsg) {
+                            if (streamingMsg.thinking) {
+                                streamingMsg.text = '';
+                                streamingMsg.thinking = false;
+                            }
+                            streamingMsg.text += msg.text;
+                            scrollToBottom();
+                        }
+                    } else if (msg.type === 'ai_done') {
+                        clearWatchdog();
+                        clearThinkingTimer();
+                        streamingMsg = null;
+                    } else if (msg.type === 'ai_error') {
+                        clearWatchdog();
+                        clearThinkingTimer();
+                        if (streamingMsg) {
+                            if (streamingMsg.thinking) {
+                                streamingMsg.text = msg.text || '抱歉，系统出错了，请稍后再试';
+                            }
+                            streamingMsg.thinking = false;
+                        }
+                        streamingMsg = null;
+                    } else if (msg.type === 'agent') {
+                        addMessage(msg.text, 'assistant');
+                    }
+                };
+                websocket.onclose = () => {
+                    console.log('[客服] WebSocket断开');
+                    clearWatchdog();
+                    // 断线时若还有问题在等,立即切HTTP兜底
+                    if (streamingMsg && streamingMsg.thinking && !fallbackStarted && lastQuestion) {
+                        fallbackStarted = true;
+                        fallbackFetch(lastQuestion);
+                    }
+                    reconnectTimer = setTimeout(connectWebSocket, 3000);
+                };
+                websocket.onerror = () => {
+                    console.log('[客服] WebSocket错误');
+                    try { websocket.close(); } catch (e2) {}
+                };
+            }
+
+            // ========== HTTP兜底:WebSocket不可用时走普通接口 ==========
+            async function fallbackFetch(q) {
+                clearThinkingTimer();
+                try {
+                    const res = await fetch(`/chat/askWithSession?question=${encodeURIComponent(q)}&sessionId=${sessionId}`);
+                    const data = await res.json();
+                    if (streamingMsg) {
+                        streamingMsg.text = data.answer;
+                        streamingMsg.thinking = false;
+                        scrollToBottom();
+                    }
+                } catch (e) {
+                    if (streamingMsg) {
+                        streamingMsg.text = '系统暂时无法响应，请稍后重试或点击转人工';
+                        streamingMsg.thinking = false;
+                    }
+                }
+                streamingMsg = null;
+            }
+
+            // ========== 发送消息:WebSocket流式,8秒无反应自动切HTTP兜底 ==========
+            async function sendMessage() {
+                if (!question.value.trim()) return;
+                if (streamingMsg) {
+                    ElementPlus.ElMessage.warning('上一条回答还在生成中，请稍候');
+                    return;
+                }
+                const q = question.value.trim();
+                lastQuestion = q;
+                fallbackStarted = false;
+                addMessage(q, 'user');
+                question.value = '';
+
+                // 核心修复:用reactive创建气泡,后续修改text才会触发界面刷新
+                streamingMsg = reactive({ text: '正在思考中...', type: 'assistant', thinking: true });
+                messages.value.push(streamingMsg);
+                scrollToBottom();
+
+                // 思考计时:让你直观看到它在等火山引擎
+                let seconds = 0;
+                thinkingTimer = setInterval(() => {
+                    if (streamingMsg && streamingMsg.thinking) {
+                        seconds++;
+                        streamingMsg.text = `正在思考中...(${seconds}秒)`;
+                    }
+                }, 1000);
+
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    websocket.send(JSON.stringify({ type: 'question', text: q }));
+                    // 8秒看门狗:WS没反应就切HTTP兜底
+                    watchdogTimer = setTimeout(() => {
+                        if (streamingMsg && streamingMsg.thinking) {
+                            console.log('[客服] WebSocket 8秒无响应,切换HTTP兜底');
+                            fallbackStarted = true;
+                            try { websocket.close(); } catch (e) {}
+                            fallbackFetch(q);
+                        }
+                    }, 8000);
+                } else {
+                    fallbackFetch(q);
+                }
+            }
+
+            // 转人工提交工单
+            async function transferHuman() {
+                const q = prompt('请描述需要人工客服处理的问题：');
+                if (!q) return;
+                try {
+                    const res = await fetch('/admin/order/create', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                        body: `sessionId=${sessionId}&question=${encodeURIComponent(q)}`
+                    });
+                    const data = await res.json();
+                    addMessage(`✅ 工单已提交，工单号：${data.orderId}，人工客服将尽快与您联系`, 'assistant');
+                } catch (e) {
+                    addMessage('工单提交失败，请稍后再试', 'assistant');
+                }
+            }
+
+            // 加载历史工单（包括客服回复）
+            async function loadMyOrders() {
+                try {
+                    const res = await fetch(`/admin/order/listBySession?sessionId=${sessionId}`);
+                    const data = await res.json();
+                    if (data.data && data.data.length > 0) {
+                        data.data.forEach(order => {
+                            const statusText = order.status === 1 ? '待处理' : (order.status === 2 ? '处理中' : '已完成');
+                            let msg = `【工单 #${order.id}】\n问题：${order.question}\n状态：${statusText}`;
+                            if (order.reply) {
+                                msg += `\n客服回复：${order.reply}`;
+                            }
+                            addMessage(msg, 'assistant');
+                        });
+                    }
+                } catch (e) {}
+            }
+
+            // 上传文档
+            async function uploadFile() {
+                const file = document.querySelector('input[type="file"]').files[0];
+                if (!file) {
+                    ElementPlus.ElMessage.warning('请先选择文件');
+                    return;
+                }
+                const formData = new FormData();
+                formData.append('file', file);
+                try {
+                    const res = await fetch('/chat/upload', { method: 'POST', body: formData });
+                    const text = await res.text();
+                    ElementPlus.ElMessage.success(text);
+                } catch (e) {
+                    ElementPlus.ElMessage.error('上传失败，请重试');
+                }
+            }
+
+            // 跳转登录 / 退出登录
+            function goLogin() {
+                if (isLogin.value) {
+                    localStorage.clear();
+                    location.reload();
+                } else {
+                    localStorage.setItem('temp_session_id', sessionId);
+                    window.location.href = '/login.html';
+                }
+            }
+
+            // 页面初始化
+            onMounted(async () => {
+                // 欢迎语
+                addMessage('你好！我是智能客服助手，你可以问我任何关于企业产品、服务的问题。', 'assistant');
+
+                // 建立WebSocket连接(连接建立后后端自动补发离线人工消息)
+                connectWebSocket();
+
+                // 已登录：加载历史对话 + 历史工单
+                if (isLogin.value) {
+                    // 1. 加载历史对话
+                    try {
+                        const res = await fetch(`/chat/history?sessionId=${sessionId}`);
+                        const data = await res.json();
+                        if (data.data && data.data.length > 0) {
+                            messages.value = [];
+                            data.data.forEach(line => {
+                                const isUser = line.startsWith('用户：');
+                                const text = isUser ? line.replace('用户：','') : line.replace('助手：','');
+                                addMessage(text, isUser ? 'user' : 'assistant');
+                            });
+                        }
+                    } catch (e) {}
+
+                    // 2. 加载历史工单
+                    await loadMyOrders();
+                }
+            });
+
+            return {
+                question, messages, username, isLogin, fileInput, messagesRef,
+                sendMessage, transferHuman, uploadFile, goLogin
+            };
+        }
+    }).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>登录 - RAG智能客服系统</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f5f5f5;
+      display: flex; justify-content: center; align-items: center;
+      height: 100vh;
+    }
+    .login-box {
+      background: white; padding: 40px; border-radius: 8px;
+      box-shadow: 0 2px 12px rgba(0,0,0,0.1);
+      width: 400px;
+    }
+    .login-box h2 { text-align: center; margin-bottom: 24px; color: #333; }
+    .form-item { margin-bottom: 16px; }
+    .form-item label { display: block; margin-bottom: 8px; color: #666; }
+    .form-item input {
+      width: 100%; padding: 10px 12px;
+      border: 1px solid #ddd; border-radius: 6px; outline: none;
+    }
+    .btn-login {
+      width: 100%; padding: 12px;
+      background: #1677ff; color: white;
+      border: none; border-radius: 6px;
+      cursor: pointer; font-size: 16px;
+    }
+    .tip { text-align: center; margin-top: 16px; font-size: 12px; color: #999; }
+  </style>
+</head>
+<body>
+<div class="login-box">
+  <h2>RAG智能客服系统</h2>
+  <div class="form-item">
+    <label>用户名</label>
+    <input type="text" id="username" placeholder="请输入用户名">
+  </div>
+  <div class="form-item">
+    <label>密码</label>
+    <input type="password" id="password" placeholder="请输入密码">
+  </div>
+  <button class="btn-login" onclick="login()">登录</button>
+  <div class="tip">
+    测试账号：admin/123456（管理员），user/123456（普通用户）<br>
+    kb_admin/123456（知识库管理员），cs_staff/123456（客服坐席）
+  </div>
+</div>
+
+<script>
+  async function login() {
+    const username = document.getElementById('username').value.trim();
+    const password = document.getElementById('password').value.trim();
+    if (!username || !password) {
+      alert('请输入用户名和密码');
+      return;
+    }
+
+    // 取出游客模式的临时会话ID，登录后合并历史
+    const fromSession = localStorage.getItem('temp_session_id') || '';
+
+    const res = await fetch('/admin/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `username=${username}&password=${password}&fromSession=${fromSession}`
+    });
+    const data = await res.json();
+
+    if (data.code === 200) {
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('role', data.role);
+      localStorage.setItem('username', data.username);
+      // 登录成功清除临时标记
+      localStorage.removeItem('temp_session_id');
+
+      // 按角色跳转对应页面
+      if (data.role === 'admin') {
+        window.location.href = '/admin.html';
+      } else {
+        window.location.href = '/index.html';
+      }
+    } else {
+      alert(data.message);
+    }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+server:
+  port: 8080
+
+spring:
+  # Redis配置
+  redis:
+    host: ${REDIS_HOST:localhost}
+    port: ${REDIS_PORT:6379}
+    password: ${REDIS_PASSWORD:changeme}
+    timeout: 3000ms
+
+  # MySQL数据源配置
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://${MYSQL_HOST:localhost}:${MYSQL_PORT:3306}/${MYSQL_DB:rag_customer}?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+    username: ${MYSQL_USER:root}
+    password: ${MYSQL_PASSWORD:changeme}
+
+# 火山引擎大模型配置（请通过环境变量注入，切勿硬编码密钥）
+volcengine:
+  api-key: ${VOLCENGINE_API_KEY:your-api-key-here}
+  base-url: ${VOLCENGINE_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}
+  chat-endpoint-id: ${VOLCENGINE_CHAT_ENDPOINT:your-chat-endpoint-id}
+  embedding-endpoint-id: ${VOLCENGINE_EMBEDDING_ENDPOINT:your-embedding-endpoint-id}
+
+# Chroma向量库配置
+chroma:
+  url: ${CHROMA_URL:http://localhost:8000}
+  collection-name: ${CHROMA_COLLECTION:customer_knowledge}
+
+# JWT配置（密钥与有效期外部化，不再硬编码在代码中）
+jwt:
+  secret: ${JWT_SECRET:please-change-this-secret-key-at-least-32-chars}
+  expire-hours: ${JWT_EXPIRE_HOURS:2}
+
+# MyBatis-Plus配置
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
