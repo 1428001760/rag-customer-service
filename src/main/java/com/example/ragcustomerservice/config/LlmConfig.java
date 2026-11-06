@@ -23,22 +23,30 @@ public class LlmConfig {
     @Value("${volcengine.base-url}")
     private String baseUrl;
 
-    @Value("${volcengine.chat-endpoint-id}")
-    private String chatEndpointId;
+    @Value("${volcengine.chat-model}")
+    private String chatModel;
 
     @Value("${volcengine.embedding-endpoint-id}")
     private String embeddingEndpointId;
 
+    /**
+     * 主对话模型。
+     *
+     * 原来写死成 chat-endpoint-id（一个小号 doubao 端点），
+     * 换成 deepseek-v4-flash 之后通用问答、推理、写作能力都强一截，
+     * 实测 2-7 秒响应，适合客服这种要即时感的场景。
+     * 想换回去改 application.yml 里的 volcengine.chat-model 即可，不用动代码。
+     */
     @Bean
     public ChatLanguageModel chatLanguageModel() {
         return OpenAiChatModel.builder()
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)
-                .modelName(chatEndpointId)
-                .temperature(0.2)
-                .timeout(Duration.ofSeconds(30))
-                .maxTokens(400)
-                .maxRetries(0)
+                .modelName(chatModel)
+                .temperature(0.3)
+                .timeout(Duration.ofSeconds(60))
+                .maxTokens(800)
+                .maxRetries(1)
                 .build();
     }
 
@@ -47,10 +55,10 @@ public class LlmConfig {
         return OpenAiStreamingChatModel.builder()
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)
-                .modelName(chatEndpointId)
-                .temperature(0.2)
-                .timeout(Duration.ofSeconds(30))
-                .maxTokens(400)
+                .modelName(chatModel)
+                .temperature(0.3)
+                .timeout(Duration.ofSeconds(60))
+                .maxTokens(800)
                 .build();
     }
 

@@ -20,6 +20,9 @@ spring:
 volcengine:
   api-key: ${VOLCENGINE_API_KEY:your-api-key-here}
   base-url: ${VOLCENGINE_BASE_URL:https://ark.cn-beijing.volces.com/api/v3}
+  # 主对话模型：填模型名（deepseek-v4-flash-ga-260731）或推理接入点 ID（ep-xxxx），代码同一套
+  chat-model: ${VOLCENGINE_CHAT_MODEL:deepseek-v4-flash-ga-260731}
+  # 备用：切回接入点写法时改填这里，并调整 chat-model
   chat-endpoint-id: ${VOLCENGINE_CHAT_ENDPOINT:your-chat-endpoint-id}
   embedding-endpoint-id: ${VOLCENGINE_EMBEDDING_ENDPOINT:your-embedding-endpoint-id}
 

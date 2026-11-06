@@ -1,5 +1,6 @@
 package com.example.ragcustomerservice.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.example.ragcustomerservice.entity.ChatLog;
 import com.example.ragcustomerservice.mapper.ChatLogMapper;
 import lombok.RequiredArgsConstructor;
@@ -31,5 +32,12 @@ public class ChatLogService {
      */
     public List<ChatLog> listAll() {
         return chatLogMapper.selectList(null);
+    }
+
+    /**
+     * 按条件查询对话日志（管理后台查某个会话的完整记录用）
+     */
+    public List<ChatLog> list(LambdaQueryWrapper<ChatLog> wrapper) {
+        return chatLogMapper.selectList(wrapper);
     }
 }

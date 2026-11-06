@@ -31,3 +31,12 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### 前端依赖与构建 
+web/node_modules/
+web/dist/
+
+### 本地环境 
+.env
+*.log
+

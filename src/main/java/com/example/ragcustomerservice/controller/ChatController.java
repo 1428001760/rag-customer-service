@@ -86,4 +86,19 @@ public class ChatController {
     public String upload(@RequestParam("file") MultipartFile file) throws IOException {
         return knowledgeService.uploadKnowledge(file);
     }
+
+    /**
+     * 知识库概况（公开接口，不需要登录）。
+     *
+     * 用户端侧栏要展示「知识库里有哪些文档」，
+     * 但 /admin/knowledge/list 挂在拦截器后面，游客拿不到。
+     * 这里单独开一个只读接口，只返回文件名和块数，不暴露章节等内部结构。
+     */
+    @GetMapping("/kb-summary")
+    public Map<String, Object> kbSummary() {
+        Map<String, Object> result = new HashMap<>();
+        result.put("code", 200);
+        result.put("data", knowledgeService.listDocumentSummary());
+        return result;
+    }
 }
